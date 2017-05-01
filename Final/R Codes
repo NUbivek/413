@@ -1,0 +1,238 @@
+rm(list=ls()) memory.size(max = T) library(doParallel)
+
+library(foreach)
+
+# performance libraries c1=makeCluster(4) registerDoParallel(c1)
+
+#test
+foreach(i=1:3)%dopar% i^100
+
+#we will need this next library to help us
+
+
+################load training setwd("train")
+train = read.csv("train.csv", stringsAsFactors = T) str(train) #see data structure
+a = rep(0,length(ncol(train)))
+
+for (i in 1:ncol(train)){a(i)=sum(is.na(train[,i]))} a
+train=train[,c(-4,-7,-58,-73,-74,-75)]
+
+########################test data loading
+
+test = read.csv("test.csv",stringsAsFactors = T) str(test)
+test$SalePrice = as.integer(rep("", length(test$Id))) test=test[,c(-4,-7,-58,-73,-74,-75)]
+########Merge Data/Scale Data total = rbind(train,test)
+a = rep(0,length(ncol(total)))
+for (i in 1:ncol(total)) {a[i]=sum(is.na(total[,i]))} a
+str(total)
+#######Describe / Impute Missing library(psych)
+describe (total) ## get an initial thought about the outliers hist(total$SalePrice)
+
+
+library(mice) library(dplyr)
+ 
+library(plyr) library(Amelia)
+##visualize missing values missmap(total,main = "Missing map values")
+imp = mice(total[,c(-75)], m=1, method = "cart") #excludes price
+totalimp = complete(imp) ##8 minutes note: does not average all of the imputations missmap(totalimp)
+####simple feature creation
+##########I could also build variables that index the average previous month sales, previous year sales etc.
+########make those transformations and add to the csv file
+
+totalimp$SalePrice = total$SalePrice ####make these factors
+totalimp$YearMo = as.numeric(totalimp$Yrsold)*12+as.numeric(totalimp$MoSold) ##make these factors
+
+totalimp$MoSold = as.factor(totalimp$MoSold) totalimp$YrSold = as.factor(totalimp$YrSold) write.csv(totalimp, "totalimp.csv")
+
+
+
+#Transformation
+
+raw <- read.csv("totalimp.csv", stringsAsFactors = T, header = TRUE) print(raw)
+rawdf <- data.frame(raw)
+
+hist(log(rawdf$SalePrice), main = "Histogram of Log Sale Price", xlab = "Log(Sale Price - $)") grid()
+
+mynorm <- rnorm(10000, mean=0, sd=1)
+qqplot(mynorm, log(rawdf$SalePrice), xlab = "Normal", ylab = "Log(Sale Price - $)", main = "QQ Plot of Log(Sale Price)")
+
+########transformations
+
+totalbasementsf <- rawdf$BsmtFinSF1+rawdf$BsmtFinSF2 + rawdf$BsmtUnfSF rawdf$totalsf <-
+totalbasementsf+rawdf$LowQualFinSF+rawdf$OpenPorchSF+rawdf$WoodDeckSF+rawdf$TotalBsm tSF+rawdf$X2ndFlrSF+rawdf$X1stFlrSF
+
+plot(rawdf$SalePrice, rawdf$totalsf, main = "Total SF vs. Sale Price", xaxt = "n", xlab = "Sale Price - $") marks<- c(0, 100000, 200000, 300000, 400000, 500000, 600000, 700000, 800000)
+xticks<- format(marks, scientific = FALSE) axis(1, at=xticks, labels=xticks) abline(h=4000, col = "red")
+grid()
+
+dfraww<- subset(rawdf, totalsf < 10000)
+ 
+
+############################ Removing outliers and anomaly
+
+dfraw <- subset(dfraw, BldgType=="1Fam" & MSZoning=="RL" & Utilities=="AllPub" & LandSlope=="Gtl" & Functional=="Typ")
+summary(dfraw) str(dfraw)
+
+dfraw <- unique(dfraw)
+
+############################
+#Identifying categorical features
+cat_var <- which(sapply(dfraw, is.factor)) print(cat_var)
+#Identifying numerical features
+numeric_var <- which(sapply(dfraw, is.numeric)) print(numeric_var)
+#Capture data with categorical features dfraw_cat <- dfraw[,cat_var]
+#Capture data with numerical features dfraw_cont <- dfraw[,numeric_var]
+
+######## #####
+library(psych) library(Hmisc) library(ggplot2) library(polycor)
+#run correlations and plot a correlogram correlations <- cor(na.omit(dfraw_cont[,-1])) print(correlations)
+summary(correlations)
+
+##############
+
+#log of lot area, drop lot area dfraw$LogLotArea<- log(dfraw$LotArea) dfraw<- dfraw[, -4]
+
+
+#add x1 and x2 together and remove x1 and x2 dfraw$TotalUpSF<- dfraw$X1stFlrSF + dfraw$X2ndFlrSF dfraw<- dfraw[, c(-41, -42)]
+
+#create dummy variables for enclosed
+
+dummyenclose<- as.numeric(dfraw$EnclosedPorch !=0) dfraw$EnclosedPorchCat<- dummyenclose
+
+
+#Integer index over time dfraw$YearMo=as.numeric(dfraw$YrSold)*12+as.numeric(dfraw$MoSold)
+
+#make factors to address seasonality dfraw$MoSold=as.factor(dfraw$MoSold)
+ 
+
+plot(dfraw$MoSold, main = "Home sales by month")
+
+
+###########################
+skew(log(dfraw$totalsf)) kurtosi(log(dfraw$totalsf))
+plot(density(log(dfraw$totalsf)), main = "log(Total Square Footage in Household)") qqplot(x= log(dfraw$totalsf), y = mynorm)
+
+###remove totalsf and keep log transformed one dfraw$logtotalsf<- log(dfraw$totalsf)
+dfraw <- subset(dfraw, select = -c(totalsf) ) summary(dfraw)
+str(dfraw)
+
+##################
+total_model<- dfraw[,c('SalePrice','logtotalsf','OverallQual','TotalUpSF','GrLivArea','YearBuilt','Neighborhood','Exter Qual','KitchenQual','GarageCars','TotalBsmtSF','GarageArea','YearRemodAdd','BsmtQual','LogLotArea ','BsmtFinSF1','OverallCond','GarageYrBlt','GarageType','Fireplaces','CentralAir','BsmtUnfSF','BsmtFi nType1','Exterior1st', 'Exterior2nd', 'MSSubClass','GarageFinish', 'HouseStyle', 'BedroomAbvGr', 'Foundation','OpenPorchSF', 'HeatingQC', 'BldgType', 'TotRmsAbvGrd', 'BsmtFullBath')] summary(total_model)
+
+#write.csv(total_model, "modelingdata2.csv")
+ 
+
+#####Model Building:
+
+
+data <- read.csv("modelingdata2.csv", stringsAsFactors = T, header = TRUE) total_model <- data.frame(data)
+summary(total_model)
+
+library(forecast) library(ggplot2)
+################# simple log linear with logtotalsf model = lm(log(total_model$SalePrice)~logtotalsf)
+plot (model)
+plot(residuals(model) ~ total_model$SalePrice) plot(residuals(model) ~ total_model$logtotalsf) fitted(model)
+
+model1 = lm(log(total_model$SalePrice[1:1460])~logtotalsf[1:1460]) prediction4 = predict(model1, total_model[1461:2919,]) print(prediction4)
+summary(model1) CV(model1) fitted(model1)
+ 
+print(pred4transform) write.csv(pred4transform, "#1selectLn.csv")
+########## linear model with selected variables
+
+library(MASS)
+mylm3 = lm(log(total_model$SalePrice[1:1460])~., data=total_model[1:1460,]) mystep3 = stepAIC(mylm, direction = "both")
+mystep3$anova
+mypred3 = predict(mystep3, total_model[1461:2919,]) print(mypred3)
+print(mylm3) summary(mylm3) CV(mylm3)
+
+pred3transform <- exp(mypred3) print(pred3transform)
+
+write.csv(pred3transform, "#2Both.csv")
+############# Forward selection library(MASS)
+mylm = lm(log(total_model$SalePrice[1:1460])~., data=total_model[1:1460,]) mystep1 = stepAIC(mylm, direction = "forward")
+mystep1$anova
+mypred1 = predict(mystep1, total_model[1461:2919,])
+#print(mypred1) summary(mylm) CV(mylm)
+pred1transform <- exp(mypred1) print(pred1transform)
+
+write.csv(pred1transform, "#3lmforward.csv")
+############# Backward selection library(MASS)
+mylm2 = lm(log(total_model$SalePrice[1:1460])~., data=total_model[1:1460,])
+mystep2 = stepAIC(mylm2, direction = "backward") mystep2$anova
+mypred2 = predict(mystep2, total_model[1461:2919,])
+#print(mypred2) summary(mylm2) CV(mylm2)
+pred2transform <- exp(mypred2) print(pred2transform) write.csv(pred2transform, "#4lmbackward.csv")
+
+
+########## PCA
+
+library(pls)
+ 
+pcamodel <- pcr(log(total_model$SalePrice[1:1460])~ ., data=total_model[1:1460,]) pcaprediction <- predict(pcamodel,total_model[1461:2919,])
+print(pcaprediction)
+
+fittedpca = pcamodel$fitted print(fittedpca)
+
+pred5transform <- exp(fittedpca) print(pred5transform) write.csv(pred5transform, "#5pca.csv") summary(pcamodel) RMSEP(pcamodel)
+
+#############Rpart model library(rpart)
+rpartmodel <- rpart(log(total_model$SalePrice[1:1460])~., data = total_model[1:1460,]) rpartprediction <- predict(rpartmodel, total_model[1461:2919,])
+print(rpartprediction)
+
+summary(rpartmodel) str(rpartmodel)
+
+pred6transform <- exp(rpartprediction) print(pred6transform) write.csv(pred6transform, "#6Rpart.csv") summary(rpartmodel)
+
+
+##############  Arima try
+
+astock2 <- total_model[order(total_model$YearBuilt),] astock4 <- ts(total_model$SalePrice[1:1460], frequency = 12)
+fit.arima <- auto.arima(total_model$SalePrice[1461:2919,]) fcast.arima <- forecast(fit.arima, h=5)
+print(fcast.arima) accuracy(fit.arima)
+
+fit.arima$aicc
+
+
+######################Nnet try
+library(nnet)
+
+fit.nn <- nnetar(total_model$SalePrice,p=1,P=1,size = 50,repeats = 1000,scale.inputs = T) nn.f <- forecast(fit.nn,h=12)
+plot(nn.f)
+
+fit.nn2 <- nnetar(total_model$SalePrice,p=1,size = 5,repeats = 1000,scale.inputs = T) nn.f2 <- forecast(fit.nn2,h=12)
+plot(nn.f2)
+
+fit.nn3 <- nnetar(total_model$SalePrice,p=1,size = 100,repeats = 500,scale.inputs = T) nn.f3 <- forecast(fit.nn3,h=12)
+ 
+plot(nn.f3)
+
+########## Random forest library(randomForest)
+myforest <- randomForest (y=total_model$SalePrice[1:1460],
+x = total_model[1:1460, c(-75)], ntree=1000, replace=TRUE, do.trace = 100, importance = TRUE)
+
+mypredict <- predict(myforest, total_model[1461:2919,]) print(mypredict)
+
+write.csv(forestsubmit, "#9myforest.csv") summary(myforest)
+######svm model library(e1071)
+svmmodel <- svm(log(total_model$SalePrice[1:1460])~., data=total_model[1:1460,])
+svmpred <- predict(svmmodel, total_model[1461:2919,]) print(svmpred)
+
+svmfitted <- svmmodel$fitted
+
+pred7transform <- exp(svmfitted) print(pred7transform) write.csv(pred7transform, "#7SVM.csv")
+
+print(svmmodel)
+
+##########manual selection model8 =
+lm(log(total_model$SalePrice[1:1460])~(logtotalsf[1:1460]+total_model$OverallCond[1:1460]+total
+_model$GrLivArea[1:1460]+
+
+log(total_model$LotArea[1:1460])+total_model$OverallQual[1:1460]+total_model$YearBuilt[1:1460
+]))
+
+prediction8 = predict(model8, total_model[1461:2919,]) print(prediction8)
+summary(model8) CV(model8) fitted(model8)
+
+pred8transform <- exp(prediction8) print(pred8transform)
+
+write.csv(pred8transform, "#8selectLn.csv")
