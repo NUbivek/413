@@ -1,0 +1,62 @@
+
+library (forecast)
+library (fpp)
+library (xts)
+library (Hmisc)
+library (nnet)
+library (caret)
+
+tsla <- read.csv('TSLA.csv', header = TRUE, sep = ",")
+astock2 <- tsla[order(tsla$Date),]
+
+astock6 <- ts(astock2$Adj.Close, start = c(2011, 10),frequency = 12)
+
+train<- window(astock6, start = c(2011, 10), end = c(2015, 9))
+test<- window(astock6, start = c(2015, 9))
+
+nnf <- function(y,h,...){
+  return(forecast(nnetar(y),h=h))
+}
+
+
+fit.arima <- auto.arima(train)
+fcast.arima <- forecast(fit.arima, h=12)
+
+fit.hw <- ets(train)
+fcast.hw <- forecast(fit.hw, h=12)
+
+fit.nn <- nnetar(train)
+fcast.nn <- forecast(fit.nn, h=12)
+
+
+plot(fcast.arima, main = "ARIMA(0,1,0)")
+lines(test, lty = 2, lwd=4,col = "orange")
+grid()
+
+plot(fcast.hw, main = "Holt-Winters (MNN)")
+lines(test, lty = 2, lwd=4,col = "red")
+grid()
+
+plot(fcast.nn, main = "Neural Net")
+grid()
+lines(test, lty = 2, lwd=4,col = "purple")
+
+
+plot(astock6,col="black",lwd=4)
+title("80-20 split of training and test data")
+lines(train,col="green",lwd=2)
+lines(test,col="orange",lwd=2)
+# lines(fit.arima,col="purple",lwd=2)
+# lines(fit.hw,col="red",lwd=2)
+# lines(fit.nn,col="blue",lwd=2)
+grid()
+legend("bottomright",
+       legend=c("Training Data","Testing Data"
+       ),
+       lwd=4,lty=c(1,1,1,1,1),col=c("green","orange"),
+       cex=0.75,seg.len=5)
+
+
+accuracy(fcast.arima, test)
+accuracy(fcast.hw, test)
+accuracy(fcast.nn, test)
