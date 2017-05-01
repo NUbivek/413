@@ -1,0 +1,106 @@
+library(forecast)
+library(xts)
+library(zoo)
+library(Hmisc)
+astoc <- read.csv('competitiondata.csv', header = TRUE, sep = ",")
+head(astoc)
+astoc2 <- astoc[order(astoc$DATE),]
+astoc4 <- ts(astoc2[,2], frequency = 12)
+str(astoc4)
+(summary(astoc4))
+plot(astoc4)
+astoc2["Year"] <- as.numeric(substr(as.character(astoc2$DATE),1,4))
+astoc2["Month"] <- as.numeric(substr(as.character(astoc2$DATE),5,6))
+astoc2_model <- astoc2[c("DATE","PRCP","Year","Month")]
+head(astoc2_model)
+fit_astoc2 <-lm(PRCP ~ Year + Month, data=astoc2)
+plot(fitted(fit_astoc2), astoc2_model$PRCP, ylab="PRCP", xlab="Time")
+plot(fit_astoc2)
+CV(fit_astoc2)
+summary(fit_astoc2)
+#start=1946-09-01, end=2014-07-31
+astoc2_month_ts <- ts(astoc2_model, frequency = 12, start = c(1946,09), end = c(2014,07))
+astoc2_tslm <- tslm(PRCP ~ Year + Month, data=astoc2_month_ts)
+#create forecast dataframe - 2016
+new_data <-
+data.frame(Year=c(2014,2014,2014,2014,2014,2015,2015,2015,2015,2015,2015,2015,2015,2015,2015,2015,2015,
+2016,2016,2016,2016,2016,2016,2016)
+ ,Month=c(8,9,10,11,12,1,2,3,4,5,6,7,8,9,10,11,12,1,2,3,4,5,6,7))
+#forecast 2014/15
+frct <- forecast.lm(astoc2_tslm, newdata=new_data)
+plot(frct, main="PRCP ~ Year + Month", ylab="PRCP", xlab="Time Period")
+grid()
+#summay of time series linear model
+summary(astoc2_tslm)
+CV(astoc2_tslm)
+print (frct)
+
+########################################################################
+#Predicition using TSLM on Trend + Season
+astoc2_TSLM_Data <- astoc2[c("DATE","PRCP")]
+astoc2_ts <- ts(astoc2_TSLM_Data[,2], frequency = 12, start = c(1946,09), end = c(2014,07))
+#start=1946-09-01, end=2014-07-31
+#forecast 2016
+astoc2_ts_fit <- tslm(astoc2_ts ~ trend + season)
+plot(astoc2_ts, main="PRCP ~ Trend + Season", ylab="Price", xlab="Time Period")
+grid()
+lines(fitted(astoc2_ts_fit),col="blue")
+legend("bottomleft", lty=1, col=c("black","Blue"), legend = c("Actual", "Predicted"))
+frct1 <- forecast.lm(astoc2_ts_fit, newdata=new_data)
+plot(frct1, main="PRCP ~ Trend + Season", ylab="Precepitition", xlab="Time Period")
+#summay of time series linear model
+summary(astoc2_ts_fit)
+CV(astoc2_ts_fit)
+#view TS decomposition
+astoc22 <- astoc2[c("PRCP")] #delete date
+plot(decompose(astoc2_ts))
+print (frct1)
+
+##########################################################
+###Third method
+atemp <- read.csv('competitiondata.csv', header = TRUE, sep = ",")
+head(atemp)
+str(atemp)
+atemp2 <- atemp[order(atemp$DATE),]
+head(atemp2)
+astock2_model <- astock2[,c("DATE","PRCP","Year","Month")]
+head(astock2_model)
+atemp4 <- ts(atemp2[,2], frequency = 12, start = c(1946,09), end = c(2014,07))
+head(atemp4)
+#b. split the data into training and test data set
+set.seed(123)
+trainindex <- sample(1:nrow(atemp2),size=0.7*nrow(atemp2))#training set--70% split
+#print(trainindex)
+train <- atemp2[trainindex,]
+#print(train)
+test <- atemp2[-trainindex,]#test set--30% split
+str(train)
+str(test)
+nrow(train)
+nrow(test)
+
+######Group
+group <- rep(NA,24806)
+group <- ifelse(seq(1,24806) %in% trainindex,"Train","Test")
+df <- data.frame(date=atemp$DATE, rain=atemp$PRCP, group)
+ggplot(df, aes(x= atemp$DATE, y=atemp$PRCP,
+color=group))+geom_point()+scale_color_discrete(name="")+theme(legend.position="top")
+####Baseline model
+best_guess_model<- mean(train$PRCP)
+#####Evaluate
+RMSE.baseline <- sqrt(mean((best_guess_model-test$PRCP)^2))
+RMSE.baseline
+MAE.baseline <- mean(abs(best_guess_model-test$PRCP))
+MAE.baseline
+#####Multiple log linear regression model
+lin.reg <- lm(log(train$PRCP+1)~train$PRCP)
+print(lin.reg)
+######applying to test set
+test.pred.lin <- exp(predict(lin.reg,test))-1
+RMSE.lin.reg <- sqrt(mean((test.pred.lin-test$PRCP)^2))
+RMSE.lin.reg
+MAE.lin.reg <- mean(abs(test.pred.lin-test$PRCP))
+MAE.lin.reg
+lin.reg <- lm(log(test$PRCP+1)~test$PRCP)
+summary(lin.reg)
+print(lin.reg)
